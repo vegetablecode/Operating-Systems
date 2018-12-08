@@ -1,5 +1,5 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
- *                         LISTA: 6 | Z1 - OBSLUGA SYGNALOW                        *
+ *                             SIGNAL HANDLING IN C                                *
  * SIGALRM: show message + exit (a)                                                *
  * SIGTERM: show message (b)                                                       *
  * SIGUSR1: stop receiving this signal for 1000 loop iterations (100 sec) (c)      *
@@ -56,6 +56,6 @@ void sigusr1Handler(int signalNumber) {
 }
 
 void showMessage(int signalNumber) {
-    printf("\nWykryto sygnal nr.: %d\n", signalNumber);
+    printf("\nSignal received: %d\n", signalNumber);
     fflush(stdout);
 }
