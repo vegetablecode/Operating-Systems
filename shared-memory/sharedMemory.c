@@ -1,6 +1,6 @@
 /*
  * URUCHAMIANIE PROGRAMU:
- * > gcc sharedMemory.c
+ * > gcc pierwszy.c
  * > ./a.out
  */
 
@@ -15,6 +15,19 @@
 
 #define BUFFER_SIZE 1024
 
+struct Image {
+    char fileName[100]; // nazwa pliku
+    int fd; // deskryptor pliku z obrazkiem
+    int size; // rozmiar pliku
+    struct stat status; // status pliku
+};
+
+struct SharedMemory {
+    int fd; // deskryptor zmapowanego obszaru
+    char* map; // zmapowany obszar pamieci
+    int interator; // interator zmapowanego obszaru
+};
+
 int checkForErrors(int status, char* errorMessage) {
     if(status<0) {
         fprintf(stderr, "%s\n", errorMessage);
@@ -24,17 +37,12 @@ int checkForErrors(int status, char* errorMessage) {
 
 int main() {
     pid_t p;   // proces
-    char fileName[100]; // nazwa pliku
-    int imageFileFD; // deskryptor pliku z obrazkiem
-    int imageFileSize; // rozmiar pliku
-    struct stat imageFileStat; // status pliku
-    int imageMapFD; // deskryptor zmapowanego obszaru
-    char* imageMap; // zmapowany obszar pamieci
+    struct Image image; // struktura obrazka
+    struct SharedMemory sharedMemory; // struktura wspolnej pamieci
     char buffer[BUFFER_SIZE]; // bufor
     int numbOfBytesRead; // ilosc przeczytanych bajtow
-    int sharedMemoryCounter; // interator zmapowanego obszaru
 
-    // utworzenie obszaru pamieci
+    // utworzenie pliku wymiany & usuniecie starego pliku
     system("rm imageMap.jpg");
     system("touch imageMap.jpg");
 
@@ -47,40 +55,43 @@ int main() {
         while(1) {
             // wczytywanie nazwy pliku
             printf("Podaj nazwe pliku (q konczy program): ");
-            scanf("%s", fileName);
+            scanf("%s", image.fileName);
 
-            if(strcmp("q", fileName)!=0) {
-                // otwarcie pliku
-                imageFileFD = open(fileName, O_RDONLY);
-                checkForErrors(imageFileFD, "opening file failed");
+            if(strcmp("q", image.fileName)!=0) {
+                // otwarcie pliku obrazka
+                image.fd = open(image.fileName, O_RDONLY);
+                checkForErrors(image.fd, "opening file failed");
 
-                // pobranie dlugosci pliku
-                checkForErrors(fstat(imageFileFD, &imageFileStat), "fstat() failed");
-                imageFileSize = imageFileStat.st_size;
+                // pobranie dlugosci pliku obrazka
+                checkForErrors(fstat(image.fd, &image.status), "fstat() failed");
+                image.size = image.status.st_size;
 
-                // wczytanie pliku obrazka do zmapowanego obszaru pamieci
-                imageMapFD = open("imageMap.jpg", O_RDWR);
-                checkForErrors(imageMapFD, "accessing shared memory failed");
+                // otwarcie pliku wymiany
+                sharedMemory.fd = open("imageMap.jpg", O_RDWR);
+                checkForErrors(sharedMemory.fd, "accessing shared memory failed");
 
-                // zmiana wielkosci obszaru pamieci wspolnej
-                checkForErrors(ftruncate(imageMapFD, imageFileSize), "accessing shared memory failed");
+                // czyszczenie & zmiana wielkosci obszaru pamieci wspolnej
+                checkForErrors(ftruncate(sharedMemory.fd, image.size), "accessing shared memory failed");
 
                 // mapowanie obszaru pamieci wspolnej
-                imageMap = mmap(0, imageFileSize, PROT_READ | PROT_WRITE, MAP_SHARED, imageMapFD, 0);
-                checkForErrors(((void *)imageMap==MAP_FAILED)? -1: 0, "mmap() failed");
+                sharedMemory.map = mmap(0, image.size, PROT_READ | PROT_WRITE, MAP_SHARED, sharedMemory.fd, 0);
+                checkForErrors(((void *)sharedMemory.map==MAP_FAILED)? -1: 0, "mmap() failed");
 
                 // wczytanie pliku obrazka do obszaru pamieci wspolnej
-                sharedMemoryCounter = 0;
-                while ((numbOfBytesRead = read(imageFileFD, buffer, BUFFER_SIZE))>0) {
+                sharedMemory.interator = 0;
+                while ((numbOfBytesRead = read(image.fd, buffer, BUFFER_SIZE))>0) {
                     int i = 0;
-                    while(i<numbOfBytesRead) {
-                        imageMap[sharedMemoryCounter] = buffer[i];
-                        sharedMemoryCounter++;
-                        i++;
+                    for(i=0; i<numbOfBytesRead; i++) {
+                        sharedMemory.map[sharedMemory.interator] = buffer[i];
+                        sharedMemory.interator++;
                     }
                 }
-                close(imageFileFD);
-                close(imageMapFD);
+                msync(sharedMemory.map, image.size, MS_SYNC);
+
+                // zamkniecie plikow & odmapowanie pamieci
+                close(image.fd);
+                close(sharedMemory.fd);
+                munmap(sharedMemory.map, image.size);
 
             } else {
                 exit(0);
@@ -90,10 +101,11 @@ int main() {
 
     // -------------- POTOMEK -------------- //
     else {
-        do {
-            stat("imageMap.jpg", &imageFileStat);
+        while(1) {
+            stat("imageMap.jpg", &image.status);
+            if(image.status.st_size != 0) break;
             sleep(1);
-        } while(imageFileStat.st_size == 0);
+        }
         execlp("display", "display", "-update", "1", "imageMap.jpg", NULL);
         exit(0);
     }
