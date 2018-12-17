@@ -1,6 +1,6 @@
 /*
- * URUCHAMIANIE PROGRAMU:
- * > gcc pierwszy.c
+ * HOW TU RUN:
+ * > gcc sharedMemory.c
  * > ./a.out
  */
 
@@ -16,16 +16,16 @@
 #define BUFFER_SIZE 1024
 
 struct Image {
-    char fileName[100]; // nazwa pliku
-    int fd; // deskryptor pliku z obrazkiem
-    int size; // rozmiar pliku
-    struct stat status; // status pliku
+    char fileName[100]; // name of file
+    int fd; // file descriptor
+    int size; // file size
+    struct stat status; // file status
 };
 
 struct SharedMemory {
-    int fd; // deskryptor zmapowanego obszaru
-    char* map; // zmapowany obszar pamieci
-    int interator; // interator zmapowanego obszaru
+    int fd; // shared memory file descriptor
+    char* map; // mapped file
+    int interator; // mapped file iterator
 };
 
 int checkForErrors(int status, char* errorMessage) {
@@ -36,48 +36,48 @@ int checkForErrors(int status, char* errorMessage) {
 }
 
 int main() {
-    pid_t p;   // proces
-    struct Image image; // struktura obrazka
-    struct SharedMemory sharedMemory; // struktura wspolnej pamieci
-    char buffer[BUFFER_SIZE]; // bufor
-    int numbOfBytesRead; // ilosc przeczytanych bajtow
+    pid_t p;   // process
+    struct Image image; // image struct 
+    struct SharedMemory sharedMemory; // shared memory struct
+    char buffer[BUFFER_SIZE]; // buffer
+    int numbOfBytesRead; // number of bytes read
 
-    // utworzenie pliku wymiany & usuniecie starego pliku
+    // create shared file & remove the old one
     system("rm imageMap.jpg");
     system("touch imageMap.jpg");
 
-    // forkowanie procesu i obsluga bledu
+    // fork process & handle error
     p = fork();
     checkForErrors(p, "fork() failed");
 
-    // -------------- RODZIC -------------- //
+    // -------------- PARENT PROCESS -------------- //
     if (p > 0) {
         while(1) {
-            // wczytywanie nazwy pliku
-            printf("Podaj nazwe pliku (q konczy program): ");
+            // filename read
+            printf("Name of file (q - exit): ");
             scanf("%s", image.fileName);
 
             if(strcmp("q", image.fileName)!=0) {
-                // otwarcie pliku obrazka
+                // open image file
                 image.fd = open(image.fileName, O_RDONLY);
                 checkForErrors(image.fd, "opening file failed");
 
-                // pobranie dlugosci pliku obrazka
+                // get length of image file
                 checkForErrors(fstat(image.fd, &image.status), "fstat() failed");
                 image.size = image.status.st_size;
 
-                // otwarcie pliku wymiany
+                // open shared memory file
                 sharedMemory.fd = open("imageMap.jpg", O_RDWR);
                 checkForErrors(sharedMemory.fd, "accessing shared memory failed");
 
-                // czyszczenie & zmiana wielkosci obszaru pamieci wspolnej
+                // clean & change size of shared memory
                 checkForErrors(ftruncate(sharedMemory.fd, image.size), "accessing shared memory failed");
 
-                // mapowanie obszaru pamieci wspolnej
+                // map shared memory
                 sharedMemory.map = mmap(0, image.size, PROT_READ | PROT_WRITE, MAP_SHARED, sharedMemory.fd, 0);
                 checkForErrors(((void *)sharedMemory.map==MAP_FAILED)? -1: 0, "mmap() failed");
 
-                // wczytanie pliku obrazka do obszaru pamieci wspolnej
+                // read from image file & copy to shared memory
                 sharedMemory.interator = 0;
                 while ((numbOfBytesRead = read(image.fd, buffer, BUFFER_SIZE))>0) {
                     int i = 0;
@@ -86,9 +86,11 @@ int main() {
                         sharedMemory.interator++;
                     }
                 }
+                
+                // sync file
                 msync(sharedMemory.map, image.size, MS_SYNC);
 
-                // zamkniecie plikow & odmapowanie pamieci
+                // close all files & unmap memory
                 close(image.fd);
                 close(sharedMemory.fd);
                 munmap(sharedMemory.map, image.size);
@@ -99,7 +101,7 @@ int main() {
         }
     }
 
-    // -------------- POTOMEK -------------- //
+    // -------------- CHILD PROCESS -------------- //
     else {
         while(1) {
             stat("imageMap.jpg", &image.status);
